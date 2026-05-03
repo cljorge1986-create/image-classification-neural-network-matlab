@@ -1,0 +1,606 @@
+classdef treinoimagens < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure                    matlab.ui.Figure
+        TabGroup                    matlab.ui.container.TabGroup
+        ClassificationTab           matlab.ui.container.Tab
+        ClearButton                 matlab.ui.control.Button
+        wwwSiteButton               matlab.ui.control.Button
+        Image                       matlab.ui.control.Image
+        Resultado                   matlab.ui.control.TextArea
+        ResultLabel                 matlab.ui.control.Label
+        PCFileButton                matlab.ui.control.Button
+        ImageURLorPCfileEditField   matlab.ui.control.EditField
+        ImageURLorPCfileLabel       matlab.ui.control.Label
+        ClassifiesButton            matlab.ui.control.Button
+        TrainingTab                 matlab.ui.container.Tab
+        ChooseCNNDropDown           matlab.ui.control.DropDown
+        ChooseCNNDropDownLabel      matlab.ui.control.Label
+        SelectAllButton             matlab.ui.control.Button
+        UITable2                    matlab.ui.control.Table
+        AVGimagenspfolderEditField  matlab.ui.control.NumericEditField
+        AVGimagenspfolderEditFieldLabel  matlab.ui.control.Label
+        openButton                  matlab.ui.control.Button
+        MatrixConfusionLabel_2      matlab.ui.control.Label
+        MatrixConfusionLabel        matlab.ui.control.Label
+        UITable                     matlab.ui.control.Table
+        accurate                    matlab.ui.control.NumericEditField
+        AccurateLabel               matlab.ui.control.Label
+        numberFoldersLabel          matlab.ui.control.Label
+        RootFolder                  matlab.ui.control.EditField
+        RootFolderEditFieldLabel    matlab.ui.control.Label
+        Listadeimagesparatreino     matlab.ui.control.ListBox
+        ListadeSubficheirosLabel    matlab.ui.control.Label
+        TrainingButton              matlab.ui.control.Button
+        SoundWIPTab                 matlab.ui.container.Tab
+        PauseButton_2               matlab.ui.control.StateButton
+        ReproduzirPanel             matlab.ui.container.Panel
+        PathEditField               matlab.ui.control.EditField
+        PathEditFieldLabel          matlab.ui.control.Label
+        Button_2                    matlab.ui.control.Button
+        StopButton                  matlab.ui.control.StateButton
+        PauseButton                 matlab.ui.control.StateButton
+        playButton                  matlab.ui.control.StateButton
+        Lamp2                       matlab.ui.control.Lamp
+        Lamp                        matlab.ui.control.Lamp
+        RECButton                   matlab.ui.control.StateButton
+        Spinner                     matlab.ui.control.Spinner
+        VolumeSlider                matlab.ui.control.Slider
+        VolumeSliderLabel           matlab.ui.control.Label
+        Switch                      matlab.ui.control.ToggleSwitch
+        ConfigsTab                  matlab.ui.container.Tab
+        saveConfigFileButton        matlab.ui.control.Button
+        configName                  matlab.ui.control.EditField
+        loadConfigFileButton        matlab.ui.control.Button
+    end
+
+    
+    properties (Access = private)
+        system; % Description
+    end
+    
+    methods (Access = private)
+        function renewListFolders(app)
+            [pathFolders,numberFolders] = listingFolders(app.RootFolder.Value);
+            app.Listadeimagesparatreino.Items=pathFolders;
+            app.Listadeimagesparatreino.Value=app.Listadeimagesparatreino.Items;
+            app.numberFoldersLabel.Text=strcat('(',num2str(numberFolders-2), ')');
+            
+        end
+        
+        function resetAll(app)
+           loadConfigFileButtonPushed(app);
+           app.system.button.folder_name="Training";
+           enable_disable_button(app, "All", 0);
+        end
+
+        function enable_disable_button(app, section, onOff)
+            if onOff
+                switch section
+                    case app.system.button.folder_name
+                        app.TrainingButton.Enable="on";
+                    otherwise
+                        app.TrainingButton.Enable="off";
+                end
+            else
+                app.TrainingButton.Enable="off";
+            end
+        end
+    end
+    
+
+    % Callbacks that handle component events
+    methods (Access = private)
+
+        % Code that executes after component creation
+        function startupFcn(app, arg)
+            % system speek
+            soundFile('Welcome!'); % system speek
+            resetAll(app);
+            %ao iniciar carrego os dados
+             [app.system.net, app.system.imageSize, app.system.classifier, ...
+               app.accurate.Value, app.AVGimagenspfolderEditField.Value,...
+               app.UITable.Data, app.UITable2.Data] = loadConfig(app.configName.Value);
+            
+            
+        end
+
+        % Button pushed function: TrainingButton
+        function TrainingButtonPushed(app, event)
+           if ~isempty(app.Listadeimagesparatreino.Value)
+                renewListFolders(app);
+           end
+        switch app.ChooseCNNDropDown.Value
+            case "MobileNetV2"
+                choosed_cnn = "mobilenetv2";
+            case "ResNet50"
+                choosed_cnn = "resnet50";
+            case "SqueezeNet"
+                choosed_cnn = "squeezenet";
+            otherwise
+                choosed_cnn = "squeezenet";
+        end
+           [app.system.net, app.system.imageSize, app.system.classifier, app.accurate.Value, app.AVGimagenspfolderEditField.Value, ...
+               app.UITable.Data, app.UITable2.Data, app.system.centroids, app.system.classes]...
+               = treining_method_v2(app.RootFolder.Value, app.Listadeimagesparatreino.Value, choosed_cnn);
+        end
+
+        % Button pushed function: ClassifiesButton
+        function ClassifiesButtonPushed(app, event)
+            path = app.ImageURLorPCfileEditField.Value;
+            if isempty(path)
+                uialert(app.UIFigure, ...
+                    'No Image.', ...
+                    'Load Error');
+                return;
+            end
+            if startsWith(path, "http", 'IgnoreCase', true)
+                % URL (internet)
+                img = webread(path);
+            else
+                % Ficheiro local
+                img = imread(path);
+            end
+            
+            if size(img,3)==1
+                img = repmat(img,1,1,3);
+            end
+
+            %app.Image.ImageSource = img;
+            
+            img = imresize(img, app.system.imageSize(1:2));
+            
+            dlImg = dlarray(single(img),'SSC');
+            
+            imgFeatures = forward(app.system.net, dlImg);
+            imgFeatures = extractdata(imgFeatures);
+            
+            scores = app.system.centroids' * imgFeatures;
+            
+            [~,idx] = max(scores);
+            
+            app.Resultado.Value = app.system.classes(idx);
+
+            soundFile(cell2mat(app.Resultado.Value)); % system speek
+            
+        end
+
+        % Button pushed function: PCFileButton
+        function PCFileButtonPushed(app, event)
+            app.ImageURLorPCfileEditField.Value=loadNewImage();
+            app.Image.ImageSource=app.ImageURLorPCfileEditField.Value;
+        end
+
+        % Button pushed function: openButton
+        function openButtonPushed(app, event)
+            app.RootFolder.Value = open_training_folder(app.RootFolder.Value);
+            renewListFolders(app);
+            enable_disable_button(app, app.system.button.folder_name, 1);
+        end
+
+        % Button pushed function: saveConfigFileButton
+        function saveConfigFileButtonPushed(app, event)
+            saveConfig(app.configName.Value,{'NET'; 'IMAGESIZE'; 'CLASSIFIER'; 'ACCURATE'; 'IMG FILE';'MCONFUSION'; 'MCONFUSIONPER'; 'CENTROIDS'; 'CLASSES'},...
+                {app.system.net; app.system.imageSize; app.system.classifier; app.accurate.Value;...
+                app.AVGimagenspfolderEditField.Value; app.UITable.Data; app.UITable2.Data; app.system.centroids; app.system.classes});
+        end
+
+        % Button pushed function: loadConfigFileButton
+        function loadConfigFileButtonPushed(app, event)
+             [app.system.net, app.system.imageSize, app.system.classifier, ...
+               app.accurate.Value, app.AVGimagenspfolderEditField.Value,...
+               app.UITable.Data, app.UITable2.Data, app.system.centroids, app.system.classes] = loadConfig(app.configName.Value);
+        end
+
+        % Button pushed function: wwwSiteButton
+        function wwwSiteButtonPushed(app, event)
+            url = app.ImageURLorPCfileEditField.Value;
+            try
+                img = webread(url);
+            
+                if ~isnumeric(img) || ndims(img) < 2
+                    uialert(app.UIFigure, ...
+                        'The link is valid but does not contain an image.', ...
+                        'Invalid Content');
+                    return;
+                end
+            
+                app.Image.ImageSource = img;
+            
+            catch ME
+                uialert(app.UIFigure, ...
+                    'Unable to load image from URL. Check the link or connection.', ...
+                    'Load Error');
+            end
+        end
+
+        % Button pushed function: ClearButton
+        function ClearButtonPushed(app, event)
+            app.ImageURLorPCfileEditField.Value='';
+            app.Image.ImageSource = '';
+        end
+
+        % Value changed function: Switch
+        function SwitchValueChanged(app, event)
+            if strcmp(app.Switch.Value,'On')
+                app.Lamp2.Color=[0 1 0];
+                app.system.recObj = audiorecorder;
+            else
+                app.Lamp2.Color=[1 0 0];
+            end
+        end
+
+        % Value changed function: VolumeSlider
+        function VolumeSliderValueChanged(app, event)
+            value = app.VolumeSlider.Value;
+            set(app.Spinner,'Value',value);
+        end
+
+        % Value changed function: RECButton
+        function RECButtonValueChanged(app, event)
+            if app.RECButton.Value
+                app.Lamp.Color=[0 1 0];
+                record(app.system.recObj);
+            else
+                app.Lamp.Color=[1 0 0];
+            end
+        end
+
+        % Value changed function: Spinner
+        function SpinnerValueChanged(app, event)
+            value = app.Spinner.Value;
+            set(app.VolumeSlider,'Value',value);
+        end
+
+        % Value changed function: playButton
+        function playButtonValueChanged(app, event)
+            play(recObj);
+        end
+
+        % Value changed function: PauseButton
+        function PauseButtonValueChanged(app, event)
+            pause(recObj);            
+        end
+
+        % Value changed function: StopButton
+        function StopButtonValueChanged(app, event)
+            stop(recorder1);
+        end
+
+        % Button pushed function: SelectAllButton
+        function SelectAllButtonPushed(app, event)
+            % Select all items in ListBox
+            app.Listadeimagesparatreino.Value = app.Listadeimagesparatreino.Items;
+        end
+
+        % Button down function: SoundWIPTab
+        function SoundWIPTabButtonDown(app, event)
+            app.TabGroup.SelectedTab = app.ClassificationTab;
+
+            uialert(app.UIFigure, ...
+                'This feature is not available yet.', ...
+                'Work in progress');
+        end
+    end
+
+    % Component initialization
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create UIFigure and hide until all components are created
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.Position = [100 100 640 495];
+            app.UIFigure.Name = 'UI Figure';
+
+            % Create TabGroup
+            app.TabGroup = uitabgroup(app.UIFigure);
+            app.TabGroup.Position = [1 0 640 447];
+
+            % Create ClassificationTab
+            app.ClassificationTab = uitab(app.TabGroup);
+            app.ClassificationTab.Title = 'Classification';
+
+            % Create ClassifiesButton
+            app.ClassifiesButton = uibutton(app.ClassificationTab, 'push');
+            app.ClassifiesButton.ButtonPushedFcn = createCallbackFcn(app, @ClassifiesButtonPushed, true);
+            app.ClassifiesButton.FontWeight = 'bold';
+            app.ClassifiesButton.Position = [111 163 94 33];
+            app.ClassifiesButton.Text = 'Classifies';
+
+            % Create ImageURLorPCfileLabel
+            app.ImageURLorPCfileLabel = uilabel(app.ClassificationTab);
+            app.ImageURLorPCfileLabel.HorizontalAlignment = 'center';
+            app.ImageURLorPCfileLabel.FontWeight = 'bold';
+            app.ImageURLorPCfileLabel.Position = [9 371 107 44];
+            app.ImageURLorPCfileLabel.Text = {'Image URL '; 'or'; 'PC file'};
+
+            % Create ImageURLorPCfileEditField
+            app.ImageURLorPCfileEditField = uieditfield(app.ClassificationTab, 'text');
+            app.ImageURLorPCfileEditField.Position = [100 382 244 22];
+
+            % Create PCFileButton
+            app.PCFileButton = uibutton(app.ClassificationTab, 'push');
+            app.PCFileButton.ButtonPushedFcn = createCallbackFcn(app, @PCFileButtonPushed, true);
+            app.PCFileButton.FontWeight = 'bold';
+            app.PCFileButton.Position = [354 372 71 43];
+            app.PCFileButton.Text = 'PC File';
+
+            % Create ResultLabel
+            app.ResultLabel = uilabel(app.ClassificationTab);
+            app.ResultLabel.HorizontalAlignment = 'center';
+            app.ResultLabel.FontWeight = 'bold';
+            app.ResultLabel.Position = [71 273 123 22];
+            app.ResultLabel.Text = 'Classification Result';
+
+            % Create Resultado
+            app.Resultado = uitextarea(app.ClassificationTab);
+            app.Resultado.Position = [57 202 150 60];
+
+            % Create Image
+            app.Image = uiimage(app.ClassificationTab);
+            app.Image.Position = [257 15 366 353];
+
+            % Create wwwSiteButton
+            app.wwwSiteButton = uibutton(app.ClassificationTab, 'push');
+            app.wwwSiteButton.ButtonPushedFcn = createCallbackFcn(app, @wwwSiteButtonPushed, true);
+            app.wwwSiteButton.FontWeight = 'bold';
+            app.wwwSiteButton.Position = [447 372 119 43];
+            app.wwwSiteButton.Text = 'www-Site';
+
+            % Create ClearButton
+            app.ClearButton = uibutton(app.ClassificationTab, 'push');
+            app.ClearButton.ButtonPushedFcn = createCallbackFcn(app, @ClearButtonPushed, true);
+            app.ClearButton.BackgroundColor = [1 0 0];
+            app.ClearButton.FontWeight = 'bold';
+            app.ClearButton.FontColor = [1 1 1];
+            app.ClearButton.Position = [58 163 46 33];
+            app.ClearButton.Text = 'Clear';
+
+            % Create TrainingTab
+            app.TrainingTab = uitab(app.TabGroup);
+            app.TrainingTab.Title = 'Training';
+            app.TrainingTab.HandleVisibility = 'off';
+
+            % Create TrainingButton
+            app.TrainingButton = uibutton(app.TrainingTab, 'push');
+            app.TrainingButton.ButtonPushedFcn = createCallbackFcn(app, @TrainingButtonPushed, true);
+            app.TrainingButton.Position = [523 44 100 23];
+            app.TrainingButton.Text = 'Training';
+
+            % Create ListadeSubficheirosLabel
+            app.ListadeSubficheirosLabel = uilabel(app.TrainingTab);
+            app.ListadeSubficheirosLabel.HorizontalAlignment = 'right';
+            app.ListadeSubficheirosLabel.Position = [24 339 117 22];
+            app.ListadeSubficheirosLabel.Text = 'Lista de Subficheiros';
+
+            % Create Listadeimagesparatreino
+            app.Listadeimagesparatreino = uilistbox(app.TrainingTab);
+            app.Listadeimagesparatreino.Multiselect = 'on';
+            app.Listadeimagesparatreino.Position = [24 31 229 297];
+            app.Listadeimagesparatreino.Value = {'Item 1'};
+
+            % Create RootFolderEditFieldLabel
+            app.RootFolderEditFieldLabel = uilabel(app.TrainingTab);
+            app.RootFolderEditFieldLabel.HorizontalAlignment = 'right';
+            app.RootFolderEditFieldLabel.Position = [12 385 68 22];
+            app.RootFolderEditFieldLabel.Text = 'Root Folder';
+
+            % Create RootFolder
+            app.RootFolder = uieditfield(app.TrainingTab, 'text');
+            app.RootFolder.Position = [95 385 158 22];
+            app.RootFolder.Value = 'Select Folder';
+
+            % Create numberFoldersLabel
+            app.numberFoldersLabel = uilabel(app.TrainingTab);
+            app.numberFoldersLabel.Position = [167 339 61 22];
+
+            % Create AccurateLabel
+            app.AccurateLabel = uilabel(app.TrainingTab);
+            app.AccurateLabel.HorizontalAlignment = 'right';
+            app.AccurateLabel.Position = [321 384 54 22];
+            app.AccurateLabel.Text = 'Accuracy';
+
+            % Create accurate
+            app.accurate = uieditfield(app.TrainingTab, 'numeric');
+            app.accurate.Position = [378 385 47 22];
+
+            % Create UITable
+            app.UITable = uitable(app.TrainingTab);
+            app.UITable.ColumnName = {'Column 1'; 'Column 2'; 'Column 3'; 'Column 4'};
+            app.UITable.RowName = {};
+            app.UITable.Position = [378 230 243 141];
+
+            % Create MatrixConfusionLabel
+            app.MatrixConfusionLabel = uilabel(app.TrainingTab);
+            app.MatrixConfusionLabel.Position = [283 349 96 22];
+            app.MatrixConfusionLabel.Text = 'Matrix Confusion';
+
+            % Create MatrixConfusionLabel_2
+            app.MatrixConfusionLabel_2 = uilabel(app.TrainingTab);
+            app.MatrixConfusionLabel_2.Position = [261 200 118 22];
+            app.MatrixConfusionLabel_2.Text = 'Matrix Confusion (%)';
+
+            % Create openButton
+            app.openButton = uibutton(app.TrainingTab, 'push');
+            app.openButton.ButtonPushedFcn = createCallbackFcn(app, @openButtonPushed, true);
+            app.openButton.FontWeight = 'bold';
+            app.openButton.Position = [252 385 55 22];
+            app.openButton.Text = 'open';
+
+            % Create AVGimagenspfolderEditFieldLabel
+            app.AVGimagenspfolderEditFieldLabel = uilabel(app.TrainingTab);
+            app.AVGimagenspfolderEditFieldLabel.HorizontalAlignment = 'right';
+            app.AVGimagenspfolderEditFieldLabel.Position = [294 45 138 22];
+            app.AVGimagenspfolderEditFieldLabel.Text = 'AVG imagens p/ folder';
+
+            % Create AVGimagenspfolderEditField
+            app.AVGimagenspfolderEditField = uieditfield(app.TrainingTab, 'numeric');
+            app.AVGimagenspfolderEditField.Position = [447 45 60 22];
+
+            % Create UITable2
+            app.UITable2 = uitable(app.TrainingTab);
+            app.UITable2.ColumnName = {'Column 1'; 'Column 2'; 'Column 3'; 'Column 4'};
+            app.UITable2.RowName = {};
+            app.UITable2.Position = [378 80 243 142];
+
+            % Create SelectAllButton
+            app.SelectAllButton = uibutton(app.TrainingTab, 'push');
+            app.SelectAllButton.ButtonPushedFcn = createCallbackFcn(app, @SelectAllButtonPushed, true);
+            app.SelectAllButton.Position = [82 4 100 23];
+            app.SelectAllButton.Text = 'Select All';
+
+            % Create ChooseCNNDropDownLabel
+            app.ChooseCNNDropDownLabel = uilabel(app.TrainingTab);
+            app.ChooseCNNDropDownLabel.HorizontalAlignment = 'right';
+            app.ChooseCNNDropDownLabel.Position = [436 385 76 22];
+            app.ChooseCNNDropDownLabel.Text = 'Choose CNN';
+
+            % Create ChooseCNNDropDown
+            app.ChooseCNNDropDown = uidropdown(app.TrainingTab);
+            app.ChooseCNNDropDown.Items = {'ResNet50', 'MobileNetV2', 'SqueezeNet'};
+            app.ChooseCNNDropDown.Position = [515 385 100 22];
+            app.ChooseCNNDropDown.Value = 'SqueezeNet';
+
+            % Create SoundWIPTab
+            app.SoundWIPTab = uitab(app.TabGroup);
+            app.SoundWIPTab.Title = 'Sound (WIP)';
+            app.SoundWIPTab.ButtonDownFcn = createCallbackFcn(app, @SoundWIPTabButtonDown, true);
+
+            % Create Switch
+            app.Switch = uiswitch(app.SoundWIPTab, 'toggle');
+            app.Switch.ValueChangedFcn = createCallbackFcn(app, @SwitchValueChanged, true);
+            app.Switch.Position = [22 340 20 45];
+
+            % Create VolumeSliderLabel
+            app.VolumeSliderLabel = uilabel(app.SoundWIPTab);
+            app.VolumeSliderLabel.HorizontalAlignment = 'center';
+            app.VolumeSliderLabel.FontSize = 18;
+            app.VolumeSliderLabel.Position = [183 340 77 43];
+            app.VolumeSliderLabel.Text = 'Volume';
+
+            % Create VolumeSlider
+            app.VolumeSlider = uislider(app.SoundWIPTab);
+            app.VolumeSlider.ValueChangedFcn = createCallbackFcn(app, @VolumeSliderValueChanged, true);
+            app.VolumeSlider.Position = [281 370 175 3];
+
+            % Create Spinner
+            app.Spinner = uispinner(app.SoundWIPTab);
+            app.Spinner.Limits = [0 100];
+            app.Spinner.ValueChangedFcn = createCallbackFcn(app, @SpinnerValueChanged, true);
+            app.Spinner.Position = [476 354 147 22];
+
+            % Create RECButton
+            app.RECButton = uibutton(app.SoundWIPTab, 'state');
+            app.RECButton.ValueChangedFcn = createCallbackFcn(app, @RECButtonValueChanged, true);
+            app.RECButton.Text = 'REC';
+            app.RECButton.Position = [57 97 78 22];
+
+            % Create Lamp
+            app.Lamp = uilamp(app.SoundWIPTab);
+            app.Lamp.Position = [57 98 20 20];
+
+            % Create Lamp2
+            app.Lamp2 = uilamp(app.SoundWIPTab);
+            app.Lamp2.Position = [52 353 20 20];
+            app.Lamp2.Color = [1 0 0];
+
+            % Create ReproduzirPanel
+            app.ReproduzirPanel = uipanel(app.SoundWIPTab);
+            app.ReproduzirPanel.Title = 'Reproduzir';
+            app.ReproduzirPanel.Position = [200 31 420 117];
+
+            % Create playButton
+            app.playButton = uibutton(app.ReproduzirPanel, 'state');
+            app.playButton.ValueChangedFcn = createCallbackFcn(app, @playButtonValueChanged, true);
+            app.playButton.Text = 'play';
+            app.playButton.Position = [15 13 100 44];
+
+            % Create PauseButton
+            app.PauseButton = uibutton(app.ReproduzirPanel, 'state');
+            app.PauseButton.ValueChangedFcn = createCallbackFcn(app, @PauseButtonValueChanged, true);
+            app.PauseButton.Text = 'Pause';
+            app.PauseButton.Position = [134 13 100 44];
+
+            % Create StopButton
+            app.StopButton = uibutton(app.ReproduzirPanel, 'state');
+            app.StopButton.ValueChangedFcn = createCallbackFcn(app, @StopButtonValueChanged, true);
+            app.StopButton.Text = 'Stop';
+            app.StopButton.Position = [252 13 100 44];
+
+            % Create Button_2
+            app.Button_2 = uibutton(app.ReproduzirPanel, 'push');
+            app.Button_2.Position = [377 66 38 22];
+            app.Button_2.Text = '---';
+
+            % Create PathEditFieldLabel
+            app.PathEditFieldLabel = uilabel(app.ReproduzirPanel);
+            app.PathEditFieldLabel.HorizontalAlignment = 'right';
+            app.PathEditFieldLabel.Position = [17 66 34 22];
+            app.PathEditFieldLabel.Text = 'Path:';
+
+            % Create PathEditField
+            app.PathEditField = uieditfield(app.ReproduzirPanel, 'text');
+            app.PathEditField.Position = [66 66 312 22];
+
+            % Create PauseButton_2
+            app.PauseButton_2 = uibutton(app.SoundWIPTab, 'state');
+            app.PauseButton_2.Text = 'Pause';
+            app.PauseButton_2.Position = [57 58 78 22];
+
+            % Create ConfigsTab
+            app.ConfigsTab = uitab(app.TabGroup);
+            app.ConfigsTab.Title = 'Configs';
+
+            % Create loadConfigFileButton
+            app.loadConfigFileButton = uibutton(app.ConfigsTab, 'push');
+            app.loadConfigFileButton.ButtonPushedFcn = createCallbackFcn(app, @loadConfigFileButtonPushed, true);
+            app.loadConfigFileButton.Position = [30 309 100 22];
+            app.loadConfigFileButton.Text = 'load Config File';
+
+            % Create configName
+            app.configName = uieditfield(app.ConfigsTab, 'text');
+            app.configName.Position = [30 371 213 22];
+            app.configName.Value = 'config_2026';
+
+            % Create saveConfigFileButton
+            app.saveConfigFileButton = uibutton(app.ConfigsTab, 'push');
+            app.saveConfigFileButton.ButtonPushedFcn = createCallbackFcn(app, @saveConfigFileButtonPushed, true);
+            app.saveConfigFileButton.Position = [141 309 102 22];
+            app.saveConfigFileButton.Text = 'save Config File';
+
+            % Show the figure after all components are created
+            app.UIFigure.Visible = 'on';
+        end
+    end
+
+    % App creation and deletion
+    methods (Access = public)
+
+        % Construct app
+        function app = treinoimagens(varargin)
+
+            % Create UIFigure and components
+            createComponents(app)
+
+            % Register the app with App Designer
+            registerApp(app, app.UIFigure)
+
+            % Execute the startup function
+            runStartupFcn(app, @(app)startupFcn(app, varargin{:}))
+
+            if nargout == 0
+                clear app
+            end
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+
+            % Delete UIFigure when app is deleted
+            delete(app.UIFigure)
+        end
+    end
+end
